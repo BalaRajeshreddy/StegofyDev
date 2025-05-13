@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FileAsset, FileType } from '@/lib/types/file';
 import { FileUpload } from '@/components/shared/FileUpload';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Image, FileText, Folder, Search, Upload, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface FileManagerProps {
   brandId: string;
@@ -37,39 +38,74 @@ export function FileManager({
   allowedTypes = ['image', 'pdf'],
   showUpload = true,
 }: FileManagerProps) {
-  const [files, setFiles] = useState<FileAsset[]>([]); // TODO: Load from API
+  const [files, setFiles] = useState<FileAsset[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const folders = Array.from(new Set(files.map(f => f.folder).filter(Boolean)));
-  
+  useEffect(() => {
+    async function fetchFiles() {
+      setLoading(true);
+      try {
+        // List all files in the brand's folder in Supabase Storage
+        const { data: storageFiles, error } = await supabase.storage
+          .from('product-images')
+          .list(`${brandId}/`, { limit: 100, offset: 0 });
+        if (error) throw error;
+        // Get public URLs for each file
+        const filesWithUrls: FileAsset[] = (storageFiles || [])
+          .filter(f => f.name.match(/\.(jpg|jpeg|png|gif|webp)$/i))
+          .map(f => {
+            const { data: { publicUrl } } = supabase.storage
+              .from('product-images')
+              .getPublicUrl(`${brandId}/${f.name}`);
+            return {
+              id: f.id || f.name,
+              name: f.name,
+              url: publicUrl,
+              type: 'image',
+              size: f.metadata?.size || 0,
+              folder: brandId,
+              alt: f.name,
+              brandId: brandId,
+              userId: '',
+              createdAt: '',
+              updatedAt: '',
+              metadata: undefined,
+              tags: undefined,
+              description: undefined,
+              usageCount: 0,
+              lastUsed: undefined,
+              mimeType: '',
+            };
+          });
+        setFiles(filesWithUrls);
+      } catch (error) {
+        setFiles([]);
+      }
+      setLoading(false);
+    }
+    fetchFiles();
+  }, [brandId, showUploadDialog]);
+
   const filteredFiles = files.filter(file => {
     const matchesSearch = file.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFolder = !selectedFolder || file.folder === selectedFolder;
     const matchesType = allowedTypes.includes(file.type);
-    return matchesSearch && matchesFolder && matchesType;
+    return matchesSearch && matchesType;
   });
 
   const handleFileUpload = async (file: File) => {
-    // TODO: Implement file upload to storage
-    console.log('Uploading file:', file);
+    if (!file || !brandId) return;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}.${fileExt}`;
+    const filePath = `${brandId}/${fileName}`;
+    await supabase.storage.from('product-images').upload(filePath, file);
+    setShowUploadDialog(false);
   };
 
   const handleFileSelect = (file: FileAsset) => {
     if (onSelect) {
       onSelect(file);
-    }
-  };
-
-  const getFileIcon = (type: FileType) => {
-    switch (type) {
-      case 'image':
-        return <Image className="h-4 w-4" />;
-      case 'pdf':
-        return <FileText className="h-4 w-4" />;
-      default:
-        return <FileText className="h-4 w-4" />;
     }
   };
 
@@ -96,81 +132,43 @@ export function FileManager({
           </Button>
         )}
       </div>
-
-      <div className="flex-1 flex">
-        {/* Folders Sidebar */}
-        <div className="w-48 border-r p-4">
-          <Label className="text-xs font-medium mb-2">Folders</Label>
-          <div className="space-y-1">
-            <Button
-              variant="ghost"
-              className={cn(
-                'w-full justify-start',
-                !selectedFolder && 'bg-muted'
-              )}
-              onClick={() => setSelectedFolder(null)}
-            >
-              <Folder className="h-4 w-4 mr-2" />
-              All Files
-            </Button>
-            {folders.map((folder) => (
-              <Button
-                key={folder}
-                variant="ghost"
+      <div className="flex-1 p-4">
+        {loading ? (
+          <div>Loading files...</div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {filteredFiles.map((file) => (
+              <Card
+                key={file.id}
                 className={cn(
-                  'w-full justify-start',
-                  selectedFolder === folder && 'bg-muted'
+                  'cursor-pointer hover:border-primary transition-colors',
+                  onSelect && 'hover:bg-muted/50'
                 )}
-                onClick={() => setSelectedFolder(folder)}
+                onClick={() => handleFileSelect(file)}
               >
-                <Folder className="h-4 w-4 mr-2" />
-                {folder}
-              </Button>
+                <CardContent className="p-4">
+                  <div className="aspect-square rounded-md overflow-hidden bg-muted">
+                    <img
+                      src={file.url}
+                      alt={file.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-sm font-medium truncate">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {file.size ? `${(file.size / 1024).toFixed(1)} KB` : 'Unknown size'}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
+            {filteredFiles.length === 0 && !loading && (
+              <div className="col-span-full text-center text-gray-500">No files found</div>
+            )}
           </div>
-        </div>
-
-        {/* Files Grid */}
-        <div className="flex-1 p-4">
-          <ScrollArea className="h-[calc(100vh-10rem)]">
-            <div className="grid grid-cols-4 gap-4">
-              {filteredFiles.map((file) => (
-                <Card
-                  key={file.id}
-                  className={cn(
-                    'cursor-pointer hover:border-primary transition-colors',
-                    onSelect && 'hover:bg-muted/50'
-                  )}
-                  onClick={() => handleFileSelect(file)}
-                >
-                  <CardContent className="p-4">
-                    {file.type === 'image' ? (
-                      <div className="aspect-square rounded-md overflow-hidden bg-muted">
-                        <img
-                          src={file.thumbnailUrl || file.url}
-                          alt={file.name}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <div className="aspect-square rounded-md bg-muted flex items-center justify-center">
-                        {getFileIcon(file.type)}
-                      </div>
-                    )}
-                    <div className="mt-2">
-                      <p className="text-sm font-medium truncate">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {(file.size / 1024 / 1024).toFixed(1)} MB
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
+        )}
       </div>
-
       {/* Upload Dialog */}
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
         <DialogContent>
@@ -188,13 +186,12 @@ export function FileManager({
               }}
               config={{
                 maxSizeInMB: 5,
-                allowedTypes,
+                allowedTypes: ['image'],
                 allowedMimeTypes: [
                   'image/jpeg',
                   'image/png',
                   'image/gif',
                   'image/webp',
-                  'application/pdf'
                 ]
               }}
             />

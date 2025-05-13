@@ -1,10 +1,16 @@
-
-import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useEffect, useState, useRef } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from "@/integrations/supabase/client";
 import { Block, BlockType } from '@/types/block';
 import { BlockEditorMain } from '@/components/page-builder/block-renderers/BlockEditorMain';
 import { toast } from "sonner";
+
+declare global {
+  interface Window {
+    BRAND_ID?: string;
+    LANDING_PAGE_ID?: string;
+  }
+}
 
 interface LandingPageData {
   id: string;
@@ -13,6 +19,8 @@ interface LandingPageData {
   background_color: string;
   font_family: string;
   published: boolean;
+  brand_id?: string;
+  brandId?: string;
 }
 
 const PublishedLandingPage = () => {
@@ -21,6 +29,9 @@ const PublishedLandingPage = () => {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const analyticsRecorded = useRef(false);
+  const [searchParams] = typeof window !== 'undefined' ? [new URLSearchParams(window.location.search)] : [null];
+  const qrId = searchParams?.get('qr_id');
 
   useEffect(() => {
     const fetchPageContent = async () => {
@@ -52,6 +63,27 @@ const PublishedLandingPage = () => {
 
         console.log('Found landing page:', pageData);
         setPageData(pageData);
+
+        // Expose brand_id and landing_page_id on window for analytics tracking
+        window.BRAND_ID = pageData.brand_id || pageData.brandId;
+        window.LANDING_PAGE_ID = pageData.id;
+
+        // --- Analytics: Record page view and QR scan only once per load ---
+        if (!analyticsRecorded.current && pageData.id && (pageData.brand_id || pageData.brandId)) {
+          analyticsRecorded.current = true;
+          await supabase.from('page_views').insert({
+            brand_id: pageData.brand_id || pageData.brandId,
+            landing_page_id: pageData.id
+          });
+          // Check for qr_id param
+          if (qrId) {
+            await supabase.from('qr_scans').insert({
+              brand_id: pageData.brand_id || pageData.brandId,
+              landing_page_id: pageData.id,
+              qr_code_id: qrId
+            });
+          }
+        }
 
         // Then get all components for this page
         const { data: components, error: componentsError } = await supabase
@@ -100,7 +132,7 @@ const PublishedLandingPage = () => {
       setError("Invalid page URL");
       setIsLoading(false);
     }
-  }, [slug]);
+  }, [slug, qrId]);
 
   if (isLoading) {
     return (
@@ -141,7 +173,11 @@ const PublishedLandingPage = () => {
               <div key={block.id} className="bg-white rounded-lg shadow p-4">
                 <BlockEditorMain
                   blockType={block.type as BlockType | string}
-                  content={block.content}
+                  content={
+                    block.type === 'contact form'
+                      ? { ...block.content, brandId: pageData?.brand_id || pageData?.brandId }
+                      : block.content
+                  }
                   styles={block.styles}
                 />
               </div>

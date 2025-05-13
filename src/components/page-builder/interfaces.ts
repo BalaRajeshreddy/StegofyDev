@@ -1,4 +1,3 @@
-
 import { Block, LandingPage } from "./PageBuilder";
 
 export interface PageEditorCanvasProps {
@@ -21,7 +20,7 @@ export interface PageEditorPreviewProps {
 }
 
 export interface PageEditorSidebarProps {
-  onAddBlock: (blockType: string) => void;
+  onAddBlock: (blockType: string, content?: any) => void;
 }
 
 export interface PageSettingsDialogProps {

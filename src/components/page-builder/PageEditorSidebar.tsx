@@ -25,6 +25,7 @@ import {
   ArrowUpDown
 } from "lucide-react";
 import { PageEditorSidebarProps } from "./interfaces";
+import { TemplateSelector } from './TemplateSelector';
 
 export function PageEditorSidebar({ onAddBlock }: PageEditorSidebarProps) {
   const blockComponents = [
@@ -183,21 +184,11 @@ export function PageEditorSidebar({ onAddBlock }: PageEditorSidebarProps) {
         <TabsContent value="templates" className="flex-1 mt-0 relative">
           <ScrollArea className="h-[calc(100vh-16rem)] absolute inset-0">
             <div className="p-4 space-y-4 pb-10">
-              {templates.map((template) => (
-                <div 
-                  key={template.id} 
-                  className="border rounded-lg overflow-hidden cursor-pointer hover:border-primary transition-colors"
-                  onClick={() => handleTemplateSelect(template)}
-                >
-                  <div className="h-32 bg-muted flex items-center justify-center">
-                    <span className="text-muted-foreground">{template.name}</span>
-                  </div>
-                  <div className="p-3 border-t bg-gray-50">
-                    <p className="text-sm font-medium">{template.name}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
-                  </div>
-                </div>
-              ))}
+              <TemplateSelector onSelect={(template) => {
+                template.blocks.forEach((block: any) => {
+                  onAddBlock(block.type, block.content);
+                });
+              }} />
             </div>
           </ScrollArea>
         </TabsContent>

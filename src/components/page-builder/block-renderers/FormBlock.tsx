@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BlockStyles } from '@/types/block';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { supabase } from '@/integrations/supabase/client';
 
 interface FormField {
   type: string;
@@ -25,9 +26,49 @@ interface FormBlockProps {
     label?: BlockStyles;
     button?: BlockStyles;
   };
+  brandId?: string;
 }
 
-export function FormBlock({ content, styles = {} }: FormBlockProps) {
+export function FormBlock({ content, styles = {}, brandId }: FormBlockProps) {
+  // Add state for form fields
+  const [form, setForm] = useState({ name: '', email: '', message: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setSuccess(null);
+    setError(null);
+    try {
+      if (!brandId) throw new Error('Brand not found');
+      const { error } = await supabase
+        .from('contact_submissions')
+        .insert({
+          brand_id: brandId,
+          customer_name: form.name,
+          customer_email: form.email,
+          message: form.message
+        });
+      if (error) throw new Error(error.message);
+      setSuccess('Thank you for contacting us!');
+      // Store customer email in localStorage for click tracking
+      if (form.email) {
+        localStorage.setItem('customer_email', form.email);
+      }
+      setForm({ name: '', email: '', message: '' });
+    } catch (err: any) {
+      setError(err.message || 'Submission failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Helper function to apply container styles
   const applyContainerStyles = (additionalClasses?: string) => {
     const containerStyles = styles.container || {};
@@ -136,47 +177,52 @@ export function FormBlock({ content, styles = {} }: FormBlockProps) {
     };
   };
 
-  const renderField = (field: FormField) => {
-    switch (field.type) {
-      case 'textarea':
-        return (
-          <div key={field.label} className="space-y-2">
-            <Label {...applyLabelStyles()}>
-              {field.label}
-              {field.required && <span className="text-red-500 ml-1">*</span>}
-            </Label>
-            <Textarea
-              {...applyInputStyles()}
-              placeholder={field.placeholder}
-              required={field.required}
-            />
-          </div>
-        );
-      default:
-        return (
-          <div key={field.label} className="space-y-2">
-            <Label {...applyLabelStyles()}>
-              {field.label}
-              {field.required && <span className="text-red-500 ml-1">*</span>}
-            </Label>
-            <Input
-              type={field.type}
-              {...applyInputStyles()}
-              placeholder={field.placeholder}
-              required={field.required}
-            />
-          </div>
-        );
-    }
-  };
-
   return (
     <div {...applyContainerStyles('rounded-lg')}>
-      <form className="space-y-4">
-        {content.fields.map(renderField)}
-        <button {...applyButtonStyles()}>
-          {content.submitText}
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        {content.fields.map((field) => {
+          if (field.type === 'textarea') {
+            return (
+              <div key={field.label} className="space-y-2">
+                <Label {...applyLabelStyles()}>
+                  {field.label}
+                  {field.required && <span className="text-red-500 ml-1">*</span>}
+                </Label>
+                <Textarea
+                  {...applyInputStyles()}
+                  placeholder={field.placeholder}
+                  required={field.required}
+                  name="message"
+                  value={form.message}
+                  onChange={handleChange}
+                />
+              </div>
+            );
+          }
+          // For Name and Email
+          return (
+            <div key={field.label} className="space-y-2">
+              <Label {...applyLabelStyles()}>
+                {field.label}
+                {field.required && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              <Input
+                type={field.type}
+                {...applyInputStyles()}
+                placeholder={field.placeholder}
+                required={field.required}
+                name={field.label.toLowerCase()}
+                value={form[field.label.toLowerCase() as 'name' | 'email']}
+                onChange={handleChange}
+              />
+            </div>
+          );
+        })}
+        <button {...applyButtonStyles()} disabled={submitting}>
+          {submitting ? 'Submitting...' : content.submitText}
         </button>
+        {success && <div className="text-green-600 text-sm mt-2">{success}</div>}
+        {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
       </form>
     </div>
   );

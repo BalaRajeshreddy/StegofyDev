@@ -26,40 +26,16 @@ export const ImageBlock: React.FC<ImageBlockProps> = ({
     });
   };
 
-  const handleImageSelect = async (file: any) => {
-    if (file instanceof File) {
-      try {
-        // Create FormData for file upload
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('brandId', brandId);
-
-        // Upload to server
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to upload image');
-        }
-
-        const data = await response.json();
-        
-        // Update block with permanent URL from server
-        handleChange('image', {
-          url: data.url,
-          alt: file.name
-        });
-      } catch (error) {
-        console.error('Error uploading image:', error);
-        // You might want to show an error message to the user here
-      }
-    } else if (file && typeof file === 'object') {
-      // Handle existing file or URL
+  const handleImageSelect = (file: any) => {
+    if (file && typeof file === 'object') {
       handleChange('image', {
         url: file.url || file,
         alt: file.alt || file.name || 'Image'
+      });
+    } else if (typeof file === 'string') {
+      handleChange('image', {
+        url: file,
+        alt: 'Image'
       });
     }
   };

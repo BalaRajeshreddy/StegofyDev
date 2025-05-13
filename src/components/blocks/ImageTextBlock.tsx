@@ -28,19 +28,15 @@ export const ImageTextBlock: React.FC<ImageTextBlockProps> = ({
   };
 
   const handleImageSelect = (file: any) => {
-    if (file instanceof File) {
-      // Handle file upload
-      const objectUrl = URL.createObjectURL(file);
-      handleChange('image', {
-        url: objectUrl,
-        file: file,
-        alt: file.name
-      });
-    } else if (file && typeof file === 'object') {
-      // Handle existing file or URL
+    if (file && typeof file === 'object') {
       handleChange('image', {
         url: file.url || file,
         alt: file.alt || file.name || 'Image'
+      });
+    } else if (typeof file === 'string') {
+      handleChange('image', {
+        url: file,
+        alt: 'Image'
       });
     }
   };

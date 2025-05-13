@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { useNavigate, Link } from "react-router-dom";
@@ -102,6 +101,41 @@ const QRCodesList = () => {
     }
   };
 
+  // Generate QR image URL (same as QRCustomizer)
+  const getQRImageUrl = (qr) => {
+    // You may want to store color/backgroundColor in the QR code record in the future
+    const size = 300;
+    const color = '3F51B5'; // default blue
+    const backgroundColor = 'FFFFFF'; // default white
+    return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(qr.url)}&bgcolor=${backgroundColor}&color=${color}`;
+  };
+
+  // Download handler
+  const handleDownload = async (qr) => {
+    const qrImageUrl = getQRImageUrl(qr);
+    // Sanitize the QR code title for use as a filename
+    const safeTitle = (qr.title || 'qrcode')
+      .toLowerCase()
+      .replace(/[^a-z0-9\-_]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .substring(0, 50) || 'qrcode';
+    const filename = `${safeTitle}.png`;
+    try {
+      const response = await fetch(qrImageUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      if (typeof toast === 'function') toast('Failed to download QR code image.');
+    }
+  };
+
   if (isLoading) {
     return (
       <DashboardLayout userType="Brand" userName="...">
@@ -197,6 +231,7 @@ const QRCodesList = () => {
                             variant="ghost"
                             size="icon"
                             title="Download"
+                            onClick={() => handleDownload(qr)}
                           >
                             <Download size={16} />
                           </Button>

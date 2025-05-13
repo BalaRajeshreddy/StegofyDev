@@ -51,6 +51,7 @@ export function PageBuilder({ userId, pageId }: PageBuilderProps) {
     fieldPath: string;
     altPath?: string;
   } | null>(null);
+  const [brandId, setBrandId] = useState<string | null>(null);
   
   const navigate = useNavigate();
   
@@ -124,15 +125,27 @@ export function PageBuilder({ userId, pageId }: PageBuilderProps) {
     loadPageData();
   }, [pageId]);
 
-  const handleAddBlock = (blockType: string) => {
+  useEffect(() => {
+    async function fetchBrandId() {
+      if (!userId) return;
+      const { data: brand } = await supabase
+        .from('brands')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (brand && brand.id) setBrandId(brand.id);
+    }
+    fetchBrandId();
+  }, [userId]);
+
+  const handleAddBlock = (blockType: string, content?: any) => {
     const newBlock = {
-      id: `block-${Date.now()}`,
+      id: `block-${Date.now()}-${Math.random()}`,
       type: blockType,
-      content: getDefaultContentForBlockType(blockType),
+      content: content || getDefaultContentForBlockType(blockType),
       styles: getDefaultStylesForBlockType(blockType),
     };
-    
-    setBlocks([...blocks, newBlock]);
+    setBlocks(prevBlocks => [...prevBlocks, newBlock]);
   };
   
   const handleDeleteBlock = (blockId: string) => {
@@ -225,6 +238,13 @@ export function PageBuilder({ userId, pageId }: PageBuilderProps) {
       if (!landingPageId) {
         const tempSlug = `${pageData.title.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
         
+        // Fetch brand for this user
+        const { data: brand } = await supabase
+          .from('brands')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
         const { data: newPageData, error: pageError } = await supabase
           .from('landing_pages')
           .insert({
@@ -232,9 +252,10 @@ export function PageBuilder({ userId, pageId }: PageBuilderProps) {
             background_color: pageData.backgroundColor,
             font_family: pageData.fontFamily,
             user_id: userId,
-            slug: tempSlug
+            slug: tempSlug,
+            brand_id: brand?.id
           })
-          .select('id, slug')
+          .select('id, slug, brand_id')
           .single();
         
         if (pageError) {
@@ -585,6 +606,7 @@ export function PageBuilder({ userId, pageId }: PageBuilderProps) {
                     backgroundColor: pageData.backgroundColor,
                     fontFamily: pageData.fontFamily
                   }}
+                  brandId={brandId || ''}
                 />
               </SortableContext>
             </div>

@@ -45,9 +45,10 @@ interface BlockEditorProps {
   block: EditorBlock;
   onUpdateBlock: (block: EditorBlock) => void;
   openMediaLibrary?: () => void;
+  brandId: string;
 }
 
-export function BlockEditor({ block, onUpdateBlock, openMediaLibrary }: BlockEditorProps) {
+export function BlockEditor({ block, onUpdateBlock, openMediaLibrary, brandId }: BlockEditorProps) {
   const [content, setContent] = useState<Record<string, any>>(block.content);
   const [styles, setStyles] = useState<Record<string, any>>(block.styles || {});
   const [isOpen, setIsOpen] = useState(true);
@@ -165,7 +166,7 @@ export function BlockEditor({ block, onUpdateBlock, openMediaLibrary }: BlockEdi
                     updateContent('src', (file as FileAsset).url);
                   }
                 }}
-                brandId={block.brandId}
+                brandId={brandId}
                 value={content.src}
               />
             </div>

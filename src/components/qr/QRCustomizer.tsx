@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -27,8 +26,12 @@ export function QRCustomizer({ qrData, onBack, onSave, isSaving = false }: QRCus
   const [cornerRadius, setCornerRadius] = useState(0);
   const [size, setSize] = useState(300);
   
-  // Mock QR code image generation - in real app, this would use a QR code library
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(qrData.url)}&bgcolor=${backgroundColor.replace('#', '')}&color=${color.replace('#', '')}`;
+  // Always append ?qr=1 for landing page URLs if not present
+  let qrUrl = qrData.url;
+  if (qrUrl && qrUrl.includes(window.location.origin) && !qrUrl.includes('qr=1')) {
+    qrUrl += (qrUrl.includes('?') ? '&' : '?') + 'qr=1';
+  }
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(qrUrl)}&bgcolor=${backgroundColor.replace('#', '')}&color=${color.replace('#', '')}`;
 
   const handleDownload = () => {
     // Create a temporary link element

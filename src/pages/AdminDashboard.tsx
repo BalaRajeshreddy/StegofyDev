@@ -1,10 +1,44 @@
-
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { StatsCard } from "@/components/dashboard/StatsCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, QrCode, Building2, BarChart2 } from "lucide-react";
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
 
 const AdminDashboard = () => {
+  const [pendingBrands, setPendingBrands] = useState([]);
+  const [loadingBrands, setLoadingBrands] = useState(true);
+
+  useEffect(() => {
+    async function fetchPendingBrands() {
+      setLoadingBrands(true);
+      const { data, error } = await supabase
+        .from('brands')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+      setPendingBrands(data || []);
+      setLoadingBrands(false);
+    }
+    fetchPendingBrands();
+  }, []);
+
+  const handleApprove = async (brandId, brandEmail) => {
+    // Approve the brand
+    const { error } = await supabase
+      .from('brands')
+      .update({ status: 'approved', updated_at: new Date().toISOString() })
+      .eq('id', brandId);
+    if (!error) {
+      setPendingBrands((prev) => prev.filter((b) => b.id !== brandId));
+      // TODO: Send email to brandEmail (implement SMTP logic later)
+      alert('Brand approved! (Email will be sent)');
+    } else {
+      alert('Error approving brand');
+    }
+  };
+
   return (
     <DashboardLayout userType="Admin" userName="Admin User">
       <div className="space-y-6">
@@ -97,6 +131,48 @@ const AdminDashboard = () => {
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        <div className="mt-8">
+          <h2 className="text-xl font-bold mb-4">Pending Brand Approvals</h2>
+          {loadingBrands ? (
+            <div>Loading pending brands...</div>
+          ) : pendingBrands.length === 0 ? (
+            <div className="text-muted-foreground">No pending brands for approval.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border rounded shadow">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-2 border">Brand Name</th>
+                    <th className="px-4 py-2 border">Contact</th>
+                    <th className="px-4 py-2 border">Email</th>
+                    <th className="px-4 py-2 border">Mobile</th>
+                    <th className="px-4 py-2 border">Industry</th>
+                    <th className="px-4 py-2 border">Employees</th>
+                    <th className="px-4 py-2 border">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingBrands.map((brand) => (
+                    <tr key={brand.id}>
+                      <td className="px-4 py-2 border font-semibold">{brand.name}</td>
+                      <td className="px-4 py-2 border">{brand.contact_first_name} {brand.contact_last_name}</td>
+                      <td className="px-4 py-2 border">{brand.contact_email || brand.email}</td>
+                      <td className="px-4 py-2 border">{brand.contact_mobile}</td>
+                      <td className="px-4 py-2 border">{brand.industry_category}</td>
+                      <td className="px-4 py-2 border">{brand.num_employees}</td>
+                      <td className="px-4 py-2 border">
+                        <Button size="sm" onClick={() => handleApprove(brand.id, brand.contact_email || brand.email)}>
+                          Approve
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </DashboardLayout>

@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { BrandProfile } from '@/types/profile';
 import { supabase, setupStorageBuckets } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { FileSelector } from '@/components/FileSelector';
+import { MediaLibrary } from '@/components/page-builder/MediaLibrary';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 interface BrandProfileSectionProps {
   activeSection: string;
@@ -12,7 +17,18 @@ const BrandProfileSection: React.FC<BrandProfileSectionProps> = ({
   activeSection,
   onSectionChange,
 }) => {
-  const [profile, setProfile] = useState<BrandProfile>({
+  const [profile, setProfile] = useState<BrandProfile & {
+    gstNumber?: string;
+    foundedYear?: string;
+    hqLocation?: string;
+    whatsappSupport?: string;
+    supportEmail?: string;
+    supportPhone?: string;
+    teamMembers?: string[];
+    productCategories?: string[];
+    logo?: string;
+    website?: string;
+  }>({
     basicInfo: {
       brandName: '',
       logo: '',
@@ -39,41 +55,90 @@ const BrandProfileSection: React.FC<BrandProfileSectionProps> = ({
     featuredProducts: [],
     newLaunchProducts: [],
     reviews: [],
+    gstNumber: '',
+    foundedYear: '',
+    hqLocation: '',
+    whatsappSupport: '',
+    supportEmail: '',
+    supportPhone: '',
+    teamMembers: [],
+    productCategories: [],
+    logo: '',
+    website: '',
   });
 
   const [loading, setLoading] = useState(true);
+  const [brandId, setBrandId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const mapBackendBrandToProfile = (data: any): BrandProfile & any => ({
+    basicInfo: {
+      brandName: data.name || '',
+      logo: data.logo || '',
+      tagline: data.tagline || '',
+      description: data.description || '',
+      brandVideo: data.brand_video || '',
+      missionVision: data.mission_vision || '',
+      foundingYear: data.founded_year ? Number(data.founded_year) : 0,
+    },
+    contactInfo: {
+      email: data.email || data.contact_email || '',
+      phone: data.contact_mobile || data.phone || '',
+      address: data.contact_address || data.address || '',
+    },
+    socialLinks: {
+      website: (data.social_handles && data.social_handles.website) || data.website || '',
+      facebook: (data.social_handles && data.social_handles.facebook) || '',
+      instagram: (data.social_handles && data.social_handles.instagram) || '',
+      linkedin: (data.social_handles && data.social_handles.linkedin) || '',
+    },
+    certifications: data.certifications || [],
+    awards: data.awards || [],
+    campaigns: data.campaigns || [],
+    featuredProducts: data.featured_products || [],
+    newLaunchProducts: data.new_launch_products || [],
+    reviews: data.reviews || [],
+    gstNumber: data.gst_number || '',
+    foundedYear: data.founded_year || '',
+    hqLocation: data.hq_location || '',
+    whatsappSupport: data.whatsapp_support || '',
+    supportEmail: data.support_email || '',
+    supportPhone: data.support_phone || '',
+    teamMembers: data.team_members || [],
+    productCategories: data.product_categories || [],
+    logo: data.logo || '',
+    website: data.website || '',
+  });
 
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Set up storage buckets
         await setupStorageBuckets();
-
-        // Fetch user profile
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
+          setError('Please login to view your profile');
+          setLoading(false);
           toast.error('Please login to view your profile');
           return;
         }
-
         const { data, error } = await supabase
           .from('brands')
           .select('*')
           .eq('user_id', user.id)
           .single();
-
         if (error) throw error;
         if (data) {
-          setProfile(data);
+          setProfile(mapBackendBrandToProfile(data));
+          setBrandId(data.id || null);
         }
       } catch (error) {
+        setError('Failed to load profile. Please try again.');
         console.error('Error initializing profile:', error);
         toast.error('Failed to load profile');
       } finally {
         setLoading(false);
       }
     };
-
     initialize();
   }, []);
 
@@ -159,14 +224,38 @@ const BrandProfileSection: React.FC<BrandProfileSectionProps> = ({
         return;
       }
 
-      // Update profile
+      // Only include fields that are shown/used in the profile page and exist in the brands table
+      const updatePayload = {
+        user_id: user.id,
+        name: profile.basicInfo.brandName,
+        logo: profile.logo,
+        tagline: profile.basicInfo.tagline,
+        description: profile.basicInfo.description,
+        website: profile.website,
+        gst_number: profile.gstNumber,
+        founded_year: profile.foundedYear ? Number(profile.foundedYear) : null,
+        hq_location: profile.hqLocation,
+        whatsapp_support: profile.whatsappSupport,
+        support_email: profile.supportEmail,
+        support_phone: profile.supportPhone,
+        team_members: profile.teamMembers && profile.teamMembers.length > 0 ? profile.teamMembers : null,
+        product_categories: profile.productCategories && profile.productCategories.length > 0 ? profile.productCategories : null,
+        email: profile.contactInfo.email,
+        contact_email: profile.contactInfo.email,
+        contact_mobile: profile.contactInfo.phone,
+        contact_address: profile.contactInfo.address,
+        social_handles: profile.socialLinks && Object.keys(profile.socialLinks).length > 0 ? profile.socialLinks : null,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Remove undefined/null/empty string fields
+      Object.keys(updatePayload).forEach(
+        key => (updatePayload[key] === undefined || updatePayload[key] === null || updatePayload[key] === '') && delete updatePayload[key]
+      );
+
       const { error } = await supabase
         .from('brands')
-        .upsert({
-          user_id: user.id,
-          ...profile,
-          updated_at: new Date().toISOString(),
-        }, {
+        .upsert(updatePayload, {
           onConflict: 'user_id'
         });
 
@@ -181,13 +270,11 @@ const BrandProfileSection: React.FC<BrandProfileSectionProps> = ({
       }
 
       toast.success('Profile updated successfully');
-      
       // Update URL with brand name
       const brandSlug = profile.basicInfo.brandName
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '');
-      
       window.history.pushState({}, '', `/brand/${brandSlug}`);
     } catch (error) {
       console.error('Error updating brand profile:', error);
@@ -207,567 +294,278 @@ const BrandProfileSection: React.FC<BrandProfileSectionProps> = ({
     }));
   };
 
-  const sections = [
-    { id: 'basic', name: 'Basic Info' },
-    { id: 'contact', name: 'Contact Info' },
-    { id: 'social', name: 'Social Links' },
-    { id: 'certifications', name: 'Certifications' },
-    { id: 'awards', name: 'Awards' },
-    { id: 'campaigns', name: 'Campaigns' },
-    { id: 'products', name: 'Products' },
-    { id: 'reviews', name: 'Reviews' },
-  ];
-
-  const renderSection = () => {
-    switch (activeSection) {
-      case 'basic':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-xl font-semibold">Basic Information</h3>
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Brand Name</label>
-                <input
-                  type="text"
-                  name="basicInfo.brandName"
-                  value={profile.basicInfo.brandName}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Logo</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="mt-1 block w-full"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Tagline</label>
-                <input
-                  type="text"
-                  name="basicInfo.tagline"
-                  value={profile.basicInfo.tagline}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Description</label>
-                <textarea
-                  name="basicInfo.description"
-                  value={profile.basicInfo.description}
-                  onChange={handleChange}
-                  rows={4}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Brand Video</label>
-                <input
-                  type="file"
-                  accept="video/*"
-                  className="mt-1 block w-full"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Mission & Vision</label>
-                <textarea
-                  name="basicInfo.missionVision"
-                  value={profile.basicInfo.missionVision}
-                  onChange={handleChange}
-                  rows={4}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Founding Year</label>
-                <input
-                  type="number"
-                  name="basicInfo.foundingYear"
-                  value={profile.basicInfo.foundingYear}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-            </div>
+  function DynamicListInput({ label, value, onChange, placeholder }) {
+    const [list, setList] = useState(value || []);
+    const handleChange = (idx, val) => {
+      const updated = list.map((item, i) => (i === idx ? val : item));
+      setList(updated);
+      onChange(updated);
+    };
+    const addItem = () => {
+      setList([...list, '']);
+      onChange([...list, '']);
+    };
+    const removeItem = idx => {
+      const updated = list.filter((_, i) => i !== idx);
+      setList(updated);
+      onChange(updated);
+    };
+    return (
+      <div className="mb-2">
+        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        {list.map((item, idx) => (
+          <div key={idx} className="flex gap-2 mb-1">
+            <Input
+              placeholder={placeholder}
+              value={item}
+              onChange={e => handleChange(idx, e.target.value)}
+            />
+            <Button type="button" onClick={() => removeItem(idx)} size="sm">Remove</Button>
           </div>
-        );
-      case 'contact':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-xl font-semibold">Contact Information</h3>
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Email Address</label>
-                <input
-                  type="email"
-                  name="contactInfo.email"
-                  value={profile.contactInfo.email}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Phone Number</label>
-                <input
-                  type="tel"
-                  name="contactInfo.phone"
-                  value={profile.contactInfo.phone}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Physical Address</label>
-                <textarea
-                  name="contactInfo.address"
-                  value={profile.contactInfo.address}
-                  onChange={handleChange}
-                  rows={3}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-        );
-      case 'social':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-xl font-semibold">Social Links</h3>
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Website</label>
-                <input
-                  type="url"
-                  name="socialLinks.website"
-                  value={profile.socialLinks.website}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Facebook</label>
-                <input
-                  type="url"
-                  name="socialLinks.facebook"
-                  value={profile.socialLinks.facebook}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Instagram</label>
-                <input
-                  type="url"
-                  name="socialLinks.instagram"
-                  value={profile.socialLinks.instagram}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">LinkedIn</label>
-                <input
-                  type="url"
-                  name="socialLinks.linkedin"
-                  value={profile.socialLinks.linkedin}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-        );
-      case 'certifications':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-xl font-semibold">Certifications</h3>
-            <div className="space-y-4">
-              {profile.certifications.map((cert, index) => (
-                <div key={index} className="grid grid-cols-1 gap-6 sm:grid-cols-2 border p-4 rounded-lg">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Certification Name</label>
-                    <input
-                      type="text"
-                      value={cert.name}
-                      onChange={(e) => {
-                        const newCerts = [...profile.certifications];
-                        newCerts[index] = { ...cert, name: e.target.value };
-                        setProfile(prev => ({ ...prev, certifications: newCerts }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Issuing Organization</label>
-                    <input
-                      type="text"
-                      value={cert.issuingOrganization}
-                      onChange={(e) => {
-                        const newCerts = [...profile.certifications];
-                        newCerts[index] = { ...cert, issuingOrganization: e.target.value };
-                        setProfile(prev => ({ ...prev, certifications: newCerts }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700">Description</label>
-                    <textarea
-                      value={cert.description}
-                      onChange={(e) => {
-                        const newCerts = [...profile.certifications];
-                        newCerts[index] = { ...cert, description: e.target.value };
-                        setProfile(prev => ({ ...prev, certifications: newCerts }));
-                      }}
-                      rows={3}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setProfile(prev => ({
-                  ...prev,
-                  certifications: [...prev.certifications, { name: '', issuingOrganization: '', description: '' }]
-                }))}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
-              >
-                Add Certification
-              </button>
-            </div>
-          </div>
-        );
-      case 'awards':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-xl font-semibold">Awards</h3>
-            <div className="space-y-4">
-              {profile.awards.map((award, index) => (
-                <div key={index} className="grid grid-cols-1 gap-6 sm:grid-cols-2 border p-4 rounded-lg">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Award Name</label>
-                    <input
-                      type="text"
-                      value={award.name}
-                      onChange={(e) => {
-                        const newAwards = [...profile.awards];
-                        newAwards[index] = { ...award, name: e.target.value };
-                        setProfile(prev => ({ ...prev, awards: newAwards }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Year Received</label>
-                    <input
-                      type="number"
-                      value={award.year}
-                      onChange={(e) => {
-                        const newAwards = [...profile.awards];
-                        newAwards[index] = { ...award, year: parseInt(e.target.value) };
-                        setProfile(prev => ({ ...prev, awards: newAwards }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700">Description</label>
-                    <textarea
-                      value={award.description}
-                      onChange={(e) => {
-                        const newAwards = [...profile.awards];
-                        newAwards[index] = { ...award, description: e.target.value };
-                        setProfile(prev => ({ ...prev, awards: newAwards }));
-                      }}
-                      rows={3}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setProfile(prev => ({
-                  ...prev,
-                  awards: [...prev.awards, { name: '', year: new Date().getFullYear(), description: '' }]
-                }))}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
-              >
-                Add Award
-              </button>
-            </div>
-          </div>
-        );
-      case 'campaigns':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-xl font-semibold">Campaigns</h3>
-            <div className="space-y-4">
-              {profile.campaigns.map((campaign, index) => (
-                <div key={index} className="grid grid-cols-1 gap-6 sm:grid-cols-2 border p-4 rounded-lg">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Campaign Name</label>
-                    <input
-                      type="text"
-                      value={campaign.name}
-                      onChange={(e) => {
-                        const newCampaigns = [...profile.campaigns];
-                        newCampaigns[index] = { ...campaign, name: e.target.value };
-                        setProfile(prev => ({ ...prev, campaigns: newCampaigns }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Start Date</label>
-                    <input
-                      type="date"
-                      value={campaign.startDate}
-                      onChange={(e) => {
-                        const newCampaigns = [...profile.campaigns];
-                        newCampaigns[index] = { ...campaign, startDate: e.target.value };
-                        setProfile(prev => ({ ...prev, campaigns: newCampaigns }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">End Date</label>
-                    <input
-                      type="date"
-                      value={campaign.endDate}
-                      onChange={(e) => {
-                        const newCampaigns = [...profile.campaigns];
-                        newCampaigns[index] = { ...campaign, endDate: e.target.value };
-                        setProfile(prev => ({ ...prev, campaigns: newCampaigns }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700">Description</label>
-                    <textarea
-                      value={campaign.description}
-                      onChange={(e) => {
-                        const newCampaigns = [...profile.campaigns];
-                        newCampaigns[index] = { ...campaign, description: e.target.value };
-                        setProfile(prev => ({ ...prev, campaigns: newCampaigns }));
-                      }}
-                      rows={3}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setProfile(prev => ({
-                  ...prev,
-                  campaigns: [...prev.campaigns, { name: '', startDate: '', endDate: '', description: '' }]
-                }))}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
-              >
-                Add Campaign
-              </button>
-            </div>
-          </div>
-        );
-      case 'products':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-xl font-semibold">Products</h3>
-            <div className="space-y-4">
-              {profile.featuredProducts.map((product, index) => (
-                <div key={index} className="grid grid-cols-1 gap-6 sm:grid-cols-2 border p-4 rounded-lg">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Product Name</label>
-                    <input
-                      type="text"
-                      value={product.name}
-                      onChange={(e) => {
-                        const newProducts = [...profile.featuredProducts];
-                        newProducts[index] = { ...product, name: e.target.value };
-                        setProfile(prev => ({ ...prev, featuredProducts: newProducts }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Price</label>
-                    <input
-                      type="number"
-                      value={product.price}
-                      onChange={(e) => {
-                        const newProducts = [...profile.featuredProducts];
-                        newProducts[index] = { ...product, price: parseFloat(e.target.value) };
-                        setProfile(prev => ({ ...prev, featuredProducts: newProducts }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700">Description</label>
-                    <textarea
-                      value={product.description}
-                      onChange={(e) => {
-                        const newProducts = [...profile.featuredProducts];
-                        newProducts[index] = { ...product, description: e.target.value };
-                        setProfile(prev => ({ ...prev, featuredProducts: newProducts }));
-                      }}
-                      rows={3}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700">Product Images</label>
-                    <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
-                      {product.images?.map((image, imgIndex) => (
-                        <div key={imgIndex} className="relative aspect-square">
-                          <img
-                            src={image}
-                            alt={`Product image ${imgIndex + 1}`}
-                            className="absolute inset-0 w-full h-full object-cover rounded-lg"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, index)}
-                      className="mt-2 block w-full text-sm text-gray-500
-                        file:mr-4 file:py-2 file:px-4
-                        file:rounded-md file:border-0
-                        file:text-sm file:font-semibold
-                        file:bg-blue-50 file:text-blue-700
-                        hover:file:bg-blue-100"
-                    />
-                  </div>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setProfile(prev => ({
-                  ...prev,
-                  featuredProducts: [...prev.featuredProducts, { name: '', price: 0, description: '', images: [] }]
-                }))}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
-              >
-                Add Product
-              </button>
-            </div>
-          </div>
-        );
-      case 'reviews':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-xl font-semibold">Reviews</h3>
-            <div className="space-y-4">
-              {profile.reviews.map((review, index) => (
-                <div key={index} className="grid grid-cols-1 gap-6 sm:grid-cols-2 border p-4 rounded-lg">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Customer Name</label>
-                    <input
-                      type="text"
-                      value={review.customerName}
-                      onChange={(e) => {
-                        const newReviews = [...profile.reviews];
-                        newReviews[index] = { ...review, customerName: e.target.value };
-                        setProfile(prev => ({ ...prev, reviews: newReviews }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Rating</label>
-                    <select
-                      value={review.rating}
-                      onChange={(e) => {
-                        const newReviews = [...profile.reviews];
-                        newReviews[index] = { ...review, rating: parseInt(e.target.value) };
-                        setProfile(prev => ({ ...prev, reviews: newReviews }));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    >
-                      <option value="1">1 Star</option>
-                      <option value="2">2 Stars</option>
-                      <option value="3">3 Stars</option>
-                      <option value="4">4 Stars</option>
-                      <option value="5">5 Stars</option>
-                    </select>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700">Review Text</label>
-                    <textarea
-                      value={review.text}
-                      onChange={(e) => {
-                        const newReviews = [...profile.reviews];
-                        newReviews[index] = { ...review, text: e.target.value };
-                        setProfile(prev => ({ ...prev, reviews: newReviews }));
-                      }}
-                      rows={3}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setProfile(prev => ({
-                  ...prev,
-                  reviews: [...prev.reviews, { customerName: '', rating: 5, text: '' }]
-                }))}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
-              >
-                Add Review
-              </button>
-            </div>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
+        ))}
+        <Button type="button" onClick={addItem} size="sm">Add</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex">
-      {/* Sidebar Navigation */}
-      <div className="w-64 bg-gray-100 p-4 rounded-lg">
-        <h2 className="text-lg font-semibold mb-4">Brand Profile</h2>
-        <nav className="space-y-2">
-          {sections.map((section) => (
-            <button
-              key={section.id}
-              onClick={() => onSectionChange(section.id)}
-              className={`w-full text-left px-4 py-2 rounded-md ${
-                activeSection === section.id
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              {section.name}
-            </button>
-          ))}
-        </nav>
-      </div>
-
       {/* Main Content */}
-      <div className="flex-1 ml-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {renderSection()}
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Save Changes
-            </button>
+      <div className="flex-1">
+        {loading ? (
+          <div className="flex items-center justify-center h-96">
+            <span className="text-lg text-gray-500">Loading profile...</span>
           </div>
-        </form>
+        ) : error ? (
+          <div className="flex items-center justify-center h-96">
+            <span className="text-lg text-red-500">{error}</span>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-6 bg-gray-50 p-6 rounded-lg shadow-md">
+            {/* Render all fields at once for brand profile */}
+            <div className="space-y-6">
+              <h3 className="text-xl font-semibold">Company Info</h3>
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Brand Name</label>
+                  <input
+                    type="text"
+                    name="basicInfo.brandName"
+                    value={profile.basicInfo.brandName}
+                    onChange={handleChange}
+                    placeholder="Enter brand name"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Logo</label>
+                  <FileSelector
+                    type="image"
+                    value={profile.logo}
+                    brandId={brandId || ''}
+                    onSelect={file => setProfile(prev => ({ ...prev, logo: typeof file === 'object' && file !== null && 'url' in file ? file.url : file }))}
+                  />
+                  {profile.logo && <img src={profile.logo} alt="Logo" className="mt-2 h-16 rounded shadow" />}
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <textarea
+                    name="basicInfo.description"
+                    value={profile.basicInfo.description}
+                    onChange={handleChange}
+                    rows={4}
+                    placeholder="Describe your brand..."
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
+                  <input
+                    type="url"
+                    name="website"
+                    value={profile.website || ''}
+                    onChange={e => setProfile(prev => ({ ...prev, website: e.target.value }))}
+                    placeholder="https://yourbrand.com"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">GST Number</label>
+                  <input
+                    type="text"
+                    name="gstNumber"
+                    value={profile.gstNumber || ''}
+                    onChange={e => setProfile(prev => ({ ...prev, gstNumber: e.target.value }))}
+                    placeholder="Enter GST number"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Founded Year</label>
+                  <input
+                    type="number"
+                    name="foundedYear"
+                    value={profile.foundedYear || ''}
+                    onChange={e => setProfile(prev => ({ ...prev, foundedYear: e.target.value }))}
+                    placeholder="e.g. 2010"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">HQ Location</label>
+                  <input
+                    type="text"
+                    name="hqLocation"
+                    value={profile.hqLocation || ''}
+                    onChange={e => setProfile(prev => ({ ...prev, hqLocation: e.target.value }))}
+                    placeholder="Enter headquarters location"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Support Number</label>
+                  <input
+                    type="text"
+                    name="whatsappSupport"
+                    value={profile.whatsappSupport || ''}
+                    onChange={e => setProfile(prev => ({ ...prev, whatsappSupport: e.target.value }))}
+                    placeholder="Enter WhatsApp support number"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <DynamicListInput
+                    label="Team Members (Invite by Email)"
+                    value={profile.teamMembers}
+                    onChange={list => setProfile(prev => ({ ...prev, teamMembers: list }))}
+                    placeholder="Email"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <DynamicListInput
+                    label="Product Categories"
+                    value={profile.productCategories}
+                    onChange={list => setProfile(prev => ({ ...prev, productCategories: list }))}
+                    placeholder="Category"
+                  />
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold mt-8">Contact & Support</h3>
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Official Email</label>
+                  <input
+                    type="email"
+                    name="contactInfo.email"
+                    value={profile.contactInfo.email}
+                    onChange={handleChange}
+                    placeholder="Enter official email"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Customer Support Email</label>
+                  <input
+                    type="email"
+                    name="supportEmail"
+                    value={profile.supportEmail || ''}
+                    onChange={e => setProfile(prev => ({ ...prev, supportEmail: e.target.value }))}
+                    placeholder="Enter support email"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                  <input
+                    type="tel"
+                    name="contactInfo.phone"
+                    value={profile.contactInfo.phone}
+                    onChange={handleChange}
+                    placeholder="Enter phone number"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Customer Support Phone</label>
+                  <input
+                    type="tel"
+                    name="supportPhone"
+                    value={profile.supportPhone || ''}
+                    onChange={e => setProfile(prev => ({ ...prev, supportPhone: e.target.value }))}
+                    placeholder="Enter support phone number"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Physical Address</label>
+                  <textarea
+                    name="contactInfo.address"
+                    value={profile.contactInfo.address}
+                    onChange={handleChange}
+                    rows={3}
+                    placeholder="Enter address"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold mt-8">Social Handles</h3>
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
+                  <input
+                    type="url"
+                    name="socialLinks.website"
+                    value={profile.socialLinks.website}
+                    onChange={handleChange}
+                    placeholder="https://yourbrand.com"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Facebook</label>
+                  <input
+                    type="url"
+                    name="socialLinks.facebook"
+                    value={profile.socialLinks.facebook}
+                    onChange={handleChange}
+                    placeholder="Facebook URL"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Instagram</label>
+                  <input
+                    type="url"
+                    name="socialLinks.instagram"
+                    value={profile.socialLinks.instagram}
+                    onChange={handleChange}
+                    placeholder="Instagram URL"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">LinkedIn</label>
+                  <input
+                    type="url"
+                    name="socialLinks.linkedin"
+                    value={profile.socialLinks.linkedin}
+                    onChange={handleChange}
+                    placeholder="LinkedIn URL"
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition placeholder-gray-400"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end mt-8">
+              <button
+                type="submit"
+                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                Save Changes
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

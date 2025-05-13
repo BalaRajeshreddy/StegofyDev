@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -15,9 +14,10 @@ interface SortableBlockProps {
   onDeleteBlock: (blockId: string) => void;
   onUpdateBlock: (blockId: string, content: BlockContent, styles: Record<string, string>) => void;
   openMediaLibrary: (blockId: string, fieldPath: string, altPath?: string) => void;
+  brandId: string;
 }
 
-const SortableBlock = ({ block, onDeleteBlock, onUpdateBlock, openMediaLibrary }: SortableBlockProps) => {
+const SortableBlock = ({ block, onDeleteBlock, onUpdateBlock, openMediaLibrary, brandId }: SortableBlockProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: block.id });
 
@@ -71,10 +71,11 @@ const SortableBlock = ({ block, onDeleteBlock, onUpdateBlock, openMediaLibrary }
             id: block.id,
             type: block.type,
             content: block.content,
-            brandId: block.brandId || ''
+            brandId: brandId
           }}
           onUpdateBlock={handleUpdateBlock}
           openMediaLibrary={() => openMediaLibrary(block.id, 'content.image.src', 'content.image.alt')}
+          brandId={brandId}
         />
       ) : (
         <div className="py-2">
@@ -98,6 +99,7 @@ interface PageEditorCanvasProps {
     backgroundColor: string;
     fontFamily: string;
   };
+  brandId: string;
 }
 
 export function PageEditorCanvas({
@@ -105,7 +107,8 @@ export function PageEditorCanvas({
   onDeleteBlock,
   onUpdateBlock,
   openMediaLibrary,
-  pageStyles
+  pageStyles,
+  brandId
 }: PageEditorCanvasProps) {
   return (
     <div className="flex-1 h-[calc(100vh-4rem)] flex flex-col">
@@ -132,6 +135,7 @@ export function PageEditorCanvas({
                     onDeleteBlock={onDeleteBlock}
                     onUpdateBlock={onUpdateBlock}
                     openMediaLibrary={openMediaLibrary}
+                    brandId={brandId}
                   />
                 ))}
               </div>

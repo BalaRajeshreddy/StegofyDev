@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { FileAsset } from '@/types/file';
 import { Input } from './ui/input';
@@ -6,19 +5,18 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { ImageIcon, FileIcon, Loader2 } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
+import { supabase } from '@/integrations/supabase/client';
 
 interface FileManagerProps {
   brandId: string;
-  onFileSelect: (file: FileAsset) => void; // Changed from onSelect to onFileSelect
+  onFileSelect: (file: FileAsset) => void;
   filterType?: 'image' | 'pdf';
-  fileTypes?: ('image' | 'pdf')[]; // Added to match the prop in FileSelector
+  fileTypes?: ('image' | 'pdf')[];
 }
-
-type FileType = 'IMAGE' | 'PDF';
 
 export const FileManager: React.FC<FileManagerProps> = ({
   brandId,
-  onFileSelect, // Updated prop name
+  onFileSelect,
   filterType,
   fileTypes
 }) => {
@@ -31,36 +29,47 @@ export const FileManager: React.FC<FileManagerProps> = ({
     const fetchFiles = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/brands/${brandId}/files`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch files');
-        }
-        const data = await response.json();
-        setFiles(data);
+        setError(null);
+        // List all files in the brand's folder in Supabase Storage
+        const { data: storageFiles, error } = await supabase.storage
+          .from('product-images')
+          .list(`${brandId}/`, { limit: 100, offset: 0 });
+        if (error) throw error;
+        // Get public URLs for each file
+        const filesWithUrls: FileAsset[] = (storageFiles || [])
+          .filter(f => f.name.match(/\.(jpg|jpeg|png|gif|webp)$/i))
+          .map(f => {
+            const { data: { publicUrl } } = supabase.storage
+              .from('product-images')
+              .getPublicUrl(`${brandId}/${f.name}`);
+            return {
+              id: f.id || f.name,
+              name: f.name,
+              url: publicUrl,
+              type: 'image',
+              size: f.metadata?.size || 0,
+              folder: brandId,
+              alt: f.name,
+            };
+          });
+        setFiles(filesWithUrls);
       } catch (error) {
-        console.error('Error fetching files:', error);
+        setFiles([]);
         setError('Failed to load files. Please try again.');
       } finally {
         setLoading(false);
       }
     };
-
     fetchFiles();
   }, [brandId]);
 
   const filteredFiles = files.filter(file => {
     const matchesSearch = file.name?.toLowerCase().includes(search.toLowerCase());
     const matchesType = !filterType || 
-      (filterType === 'image' && (file.type as FileType) === 'IMAGE') ||
-      (filterType === 'pdf' && (file.type as FileType) === 'PDF');
-    
+      (filterType === 'image' && file.type === 'image');
     // Also check against fileTypes if provided
     const matchesFileTypes = !fileTypes || 
-      fileTypes.some(type => 
-        (type === 'image' && (file.type as FileType) === 'IMAGE') ||
-        (type === 'pdf' && (file.type as FileType) === 'PDF')
-      );
-      
+      fileTypes.some(type => type === file.type);
     return matchesSearch && (matchesType || matchesFileTypes);
   });
 
@@ -112,14 +121,14 @@ export const FileManager: React.FC<FileManagerProps> = ({
           <Card
             key={file.id}
             className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
-            onClick={() => onFileSelect(file)} // Updated to use onFileSelect
+            onClick={() => onFileSelect(file)}
           >
             <div className="flex items-center gap-4">
-              {(file.type as FileType) === 'IMAGE' ? (
-                <ImageIcon className="w-8 h-8 text-gray-400" />
-              ) : (
-                <FileIcon className="w-8 h-8 text-gray-400" />
-              )}
+              <img
+                src={file.url}
+                alt={file.name}
+                className="w-16 h-16 object-cover rounded border"
+              />
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{file.name}</p>
                 <p className="text-sm text-gray-500">

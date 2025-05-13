@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { supabase } from '@/integrations/supabase/client';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,26 +15,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create uploads directory if it doesn't exist
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', brandId);
-    await mkdir(uploadDir, { recursive: true });
+    // Prepare file info
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${uuidv4()}.${fileExt}`;
+    const filePath = `${brandId}/${fileName}`;
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
 
-    // Create unique filename
-    const randomBytes = new Uint8Array(8);
-    crypto.getRandomValues(randomBytes);
-    const uniqueId = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-    const fileName = `${uniqueId}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
-    
-    // Convert file to buffer
-    const fileBytes = await file.arrayBuffer();
-    const buffer = Buffer.from(fileBytes);
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('product-images')
+      .upload(filePath, buffer, {
+        contentType: file.type,
+        upsert: false
+      });
 
-    // Save file
-    const filePath = path.join(uploadDir, fileName);
-    await writeFile(filePath, buffer);
+    if (uploadError) {
+      return NextResponse.json(
+        { error: uploadError.message },
+        { status: 500 }
+      );
+    }
 
-    // Return the public URL
-    const publicUrl = `/uploads/${brandId}/${fileName}`;
+    // Get public URL
+    const { data: publicUrlData } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(filePath);
+    const publicUrl = publicUrlData.publicUrl;
+
+    // Insert file metadata into 'files' table
+    await supabase.from('files').insert({
+      brand_id: brandId,
+      name: file.name,
+      url: publicUrl,
+      size: file.size,
+      mime_type: file.type,
+      type: file.type.startsWith('image/') ? 'IMAGE' : file.type.endsWith('pdf') ? 'PDF' : 'OTHER',
+    });
 
     return NextResponse.json({ url: publicUrl });
   } catch (error) {
